@@ -2,6 +2,13 @@
 
 发票pdf整理为excel表格，方便整理总价格和报销。
 
+![1750438515700](image/README/1750438515700.png)
+
+
+放入全部的原始发票，然后会提取文字，可以选择用api或者网页端处理，处理之后文件保存为excel并且支持重命名。
+
+便于统计总金额以及整理。
+
 
 python invoice_formatter_china.py  --pdf_dir ./demo  --json_out invoice_texts.json --csv_out invoices.csv --api_key sk-xxx...xxx --rename 1 --excel 1 --web 1
 
