@@ -55,6 +55,46 @@ def ask_gpt_to_format(json_path, openai_key, output_csv):
         for line in csv_text.strip().splitlines():
             f.write(line + "\n")
 
+def copy_and_rename_files(_csv_file, _source_folder, _target_folder):
+    import os
+    import shutil
+    import csv
+    import re
+
+    # 输入配置
+    csv_file = "fap.csv"           # 你整理好的CSV文件路径
+    source_folder = "./demo"        # 发票原始PDF所在目录
+    target_folder = "./整理后发票"       # 输出目录
+
+    # 创建目标目录（如果不存在）
+    os.makedirs(target_folder, exist_ok=True)
+
+    def sanitize_filename(name):
+        """去除非法文件名字符"""
+        return re.sub(r'[\\/:"*?<>|]', '_', name)
+
+    # 读取CSV并处理
+    with open(csv_file, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            old_filename = row["文件名"]
+            sale_name = row["销售方"]
+            date = row["开票日期"]
+            total = row["价税合计（元）"]
+
+            # 构建新文件名
+            new_filename = sanitize_filename(f"{sale_name} - {total} - {date}.pdf")
+
+            old_path = os.path.join(source_folder, old_filename)
+            new_path = os.path.join(target_folder, new_filename)
+
+            if os.path.exists(old_path):
+                shutil.copy2(old_path, new_path)
+                print(f"✔ 已复制并重命名为: {new_filename}")
+            else:
+                print(f"⚠ 未找到文件: {old_filename}")
+
+
 # === Example Usage ===
 # extract_invoice_texts("./invoices", "invoice_texts.json")
 # ask_gpt_to_format("invoice_texts.json", openai_key="sk-...", output_csv="invoices.csv")
@@ -72,11 +112,16 @@ def main():
     print(f"✅ 已保存发票文本到 {args.json_out}")
 
     print("[2] 通过 GPT-4o 提取关键信息并输出 CSV...")
-    ask_gpt_to_format(args.json_out, args.api_key, args.csv_out)
+    # ask_gpt_to_format(args.json_out, args.api_key, args.csv_out)
     print(f"✅ GPT 输出已保存为 {args.csv_out}")
+
+    print("[3] 复制并重命名发票文件...")
+    copy_and_rename_files(args.csv_out, args.pdf_dir, "./整理后发票")
+    print(f"✅ 已复制并重命名发票文件到 ./整理后发票")
+    
 
 if __name__ == "__main__":
     main()
     import pandas as pd
-    df = pd.read_csv("invoices.csv")
-    df.to_excel("invoices.xlsx", index=False)
+    df = pd.read_csv("fap.csv")
+    df.to_excel("fap.xlsx", index=False)
