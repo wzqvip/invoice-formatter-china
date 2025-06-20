@@ -1,14 +1,14 @@
 # invoice_formatter_china.py
-# Purpose: Extract and format Chinese invoice (PDF) content using NLP for expense reporting
 
 import os
 import pdfplumber
 import json
-from openai import OpenAI
 import csv
+import re
+import shutil
 import argparse
+import pandas as pd
 
-# === Step 1: Extract all text from PDF invoices ===
 def extract_invoice_texts(folder_path, output_json):
     results = []
     for filename in os.listdir(folder_path):
@@ -20,8 +20,8 @@ def extract_invoice_texts(folder_path, output_json):
     with open(output_json, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
-# === Step 2: Call OpenAI GPT-4o API to format content ===
 def ask_gpt_to_format(json_path, openai_key, output_csv):
+    from openai import OpenAI
     client = OpenAI(api_key=openai_key)
 
     with open(json_path, "r", encoding="utf-8") as f:
@@ -49,31 +49,17 @@ def ask_gpt_to_format(json_path, openai_key, output_csv):
         max_tokens=4096
     )
 
-    csv_text = response.choices[0].message.content
-
+    csv_text = response.choices[0].message.content.strip()
     with open(output_csv, "w", newline="", encoding="utf-8") as f:
-        for line in csv_text.strip().splitlines():
+        for line in csv_text.splitlines():
             f.write(line + "\n")
 
-def copy_and_rename_files(_csv_file, _source_folder, _target_folder):
-    import os
-    import shutil
-    import csv
-    import re
-
-    # 输入配置
-    csv_file = "fap.csv"           # 你整理好的CSV文件路径
-    source_folder = "./demo"        # 发票原始PDF所在目录
-    target_folder = "./整理后发票"       # 输出目录
-
-    # 创建目标目录（如果不存在）
+def copy_and_rename_files(csv_file, source_folder, target_folder):
     os.makedirs(target_folder, exist_ok=True)
 
     def sanitize_filename(name):
-        """去除非法文件名字符"""
         return re.sub(r'[\\/:"*?<>|]', '_', name)
 
-    # 读取CSV并处理
     with open(csv_file, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -82,9 +68,7 @@ def copy_and_rename_files(_csv_file, _source_folder, _target_folder):
             date = row["开票日期"]
             total = row["价税合计（元）"]
 
-            # 构建新文件名
             new_filename = sanitize_filename(f"{sale_name} - {total} - {date}.pdf")
-
             old_path = os.path.join(source_folder, old_filename)
             new_path = os.path.join(target_folder, new_filename)
 
@@ -94,34 +78,52 @@ def copy_and_rename_files(_csv_file, _source_folder, _target_folder):
             else:
                 print(f"⚠ 未找到文件: {old_filename}")
 
-
-# === Example Usage ===
-# extract_invoice_texts("./invoices", "invoice_texts.json")
-# ask_gpt_to_format("invoice_texts.json", openai_key="sk-...", output_csv="invoices.csv")
-
 def main():
     parser = argparse.ArgumentParser(description="中国发票 PDF 内容提取与 GPT 结构化输出工具")
     parser.add_argument("--pdf_dir", type=str, required=True, help="PDF 发票文件夹路径")
     parser.add_argument("--json_out", type=str, default="invoice_texts.json", help="提取输出的 JSON 文件名")
     parser.add_argument("--csv_out", type=str, default="invoices.csv", help="GPT 输出的 CSV 文件名")
-    parser.add_argument("--api_key", type=str, required=True, help="你的 OpenAI API Key")
+    parser.add_argument("--api_key", type=str, help="你的 OpenAI API Key（web 模式可省略）")
+    parser.add_argument("--rename", type=int, default=0, help="是否复制并重命名发票文件（0/1）")
+    parser.add_argument("--excel", type=int, default=0, help="是否将CSV转为Excel（0/1）")
+    parser.add_argument("--web", type=int, default=0, help="是否使用 ChatGPT 网页版手动处理（0/1）")
+
     args = parser.parse_args()
 
     print("[1] 提取发票文本...")
     extract_invoice_texts(args.pdf_dir, args.json_out)
     print(f"✅ 已保存发票文本到 {args.json_out}")
 
-    print("[2] 通过 GPT-4o 提取关键信息并输出 CSV...")
-    # ask_gpt_to_format(args.json_out, args.api_key, args.csv_out)
-    print(f"✅ GPT 输出已保存为 {args.csv_out}")
+    if args.web:
+        print("[2] 网页版处理模式：")
+        print("请将以下 JSON 文本复制粘贴到 ChatGPT 中（提示词见系统消息）：\n")
+        with open(args.json_out, "r", encoding="utf-8") as f:
+            print(f.read())
+        
+        print(f"\n🔁 粘贴 GPT 返回的 CSV 内容后，将其保存为: {args.csv_out}")
+        input(f"📎 完成后请按 Enter 键继续...")  # 等待用户确认
+        if not os.path.exists(args.csv_out):
+            print(f"❌ 找不到 {args.csv_out}，请确认你已经粘贴并保存了 GPT 返回的 CSV。")
+            return
 
-    print("[3] 复制并重命名发票文件...")
-    copy_and_rename_files(args.csv_out, args.pdf_dir, "./整理后发票")
-    print(f"✅ 已复制并重命名发票文件到 ./整理后发票")
-    
+    else:
+        if not args.api_key:
+            print("❌ 未提供 API Key，无法使用 GPT 模式")
+            return
+        print("[2] 调用 GPT-4o 提取关键信息...")
+        ask_gpt_to_format(args.json_out, args.api_key, args.csv_out)
+        print(f"✅ GPT 输出已保存为 {args.csv_out}")
+
+    if args.rename:
+        print("[3] 正在复制并重命名发票文件...")
+        copy_and_rename_files(args.csv_out, args.pdf_dir, "./整理后发票")
+        print("✅ 发票已复制并整理到 ./整理后发票")
+
+    if args.excel:
+        print("[4] 正在将 CSV 转为 Excel...")
+        df = pd.read_csv(args.csv_out)
+        df.to_excel(args.csv_out.replace(".csv", ".xlsx"), index=False)
+        print("✅ 已生成 Excel 文件")
 
 if __name__ == "__main__":
     main()
-    import pandas as pd
-    df = pd.read_csv("fap.csv")
-    df.to_excel("fap.xlsx", index=False)
